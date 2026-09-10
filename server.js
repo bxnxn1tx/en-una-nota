@@ -12,14 +12,12 @@ app.set('trust proxy', true);
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static(path.join(__dirname, 'public')));
-
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'player.html'));
+  res.sendFile(path.join(__dirname, 'player.html'));
 });
 
 app.get('/host', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'host.html'));
+  res.sendFile(path.join(__dirname, 'host.html'));
 });
 
 // Build the join URL from however the browser actually reached us —
