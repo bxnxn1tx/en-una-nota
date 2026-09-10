@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>En una nota</title>
+<style>
+  :root{
+    --bg: #0f1220;
+    --panel: #171b2e;
+    --accent: #ffcc00;
+    --accent2: #22c55e;
+    --text: #f5f6fa;
+    --muted: #9aa0b4;
+  }
+  *{ box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{ height:100%; margin:0; overscroll-behavior:none; }
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    padding:24px;
+    text-align:center;
+    transition: background-color .15s ease;
+    user-select:none;
+  }
+  h1{ font-size:1.5rem; margin:0 0 4px; }
+  .sub{ color:var(--muted); margin:0 0 28px; font-size:.95rem; }
+  .card{ width:100%; max-width:420px; }
+  input[type=text]{
+    width:100%;
+    font-size:1.2rem;
+    padding:16px;
+    border-radius:14px;
+    border:2px solid #2c3252;
+    background:var(--panel);
+    color:var(--text);
+    outline:none;
+    margin-bottom:16px;
+  }
+  input[type=text]:focus{ border-color:var(--accent); }
+  button{
+    font: inherit;
+    cursor:pointer;
+    border:none;
+    border-radius:16px;
+  }
+  .btn-primary{
+    width:100%;
+    padding:18px;
+    font-size:1.25rem;
+    font-weight:700;
+    background:var(--accent);
+    color:#1a1a1a;
+  }
+  .btn-primary:active{ transform:scale(.98); }
+  .status{
+    color:var(--muted);
+    font-size:1.05rem;
+    line-height:1.5;
+  }
+  .dot{
+    display:inline-block;
+    width:10px;height:10px;border-radius:50%;
+    background:var(--muted);
+    margin-right:8px;
+    animation: pulse 1.4s infinite ease-in-out;
+  }
+  @keyframes pulse{ 0%,100%{opacity:.3} 50%{opacity:1} }
+
+  #buzzBtn{
+    width:min(70vw,340px);
+    height:min(70vw,340px);
+    border-radius:50%;
+    background: radial-gradient(circle at 35% 30%, #ffe066, var(--accent2) 70%);
+    color:#0a1a10;
+    font-size:1.8rem;
+    font-weight:800;
+    box-shadow: 0 10px 40px rgba(34,197,94,.45), inset 0 -8px 20px rgba(0,0,0,.15);
+    border: 6px solid rgba(255,255,255,.25);
+  }
+  #buzzBtn:active{ transform:scale(.96); box-shadow:0 4px 20px rgba(34,197,94,.35); }
+
+  .locked-name{
+    font-size:2.4rem;
+    font-weight:900;
+    line-height:1.2;
+    word-break:break-word;
+  }
+  .locked-sub{ font-size:1.1rem; opacity:.9; margin-top:10px; }
+
+  .hidden{ display:none !important; }
+  .me-badge{
+    position:fixed;
+    top:14px; right:14px;
+    background:rgba(255,255,255,.08);
+    color:var(--muted);
+    padding:6px 12px;
+    border-radius:999px;
+    font-size:.8rem;
+  }
+</style>
+</head>
+<body id="body">
+
+  <div class="me-badge hidden" id="meBadge"></div>
+
+  <!-- Pantalla: ingresar nombre -->
+  <div class="card" id="screenJoin">
+    <h1>🔔 En una nota</h1>
+    <p class="sub">Escribe tu nombre para entrar a la sala</p>
+    <input id="nameInput" type="text" placeholder="Tu nombre" maxlength="24" autocomplete="off" />
+    <button class="btn-primary" id="joinBtn">Comenzar</button>
+  </div>
+
+  <!-- Pantalla: esperando -->
+  <div class="card hidden" id="screenWaiting">
+    <h1 id="waitingHi">¡Listo!</h1>
+    <p class="status"><span class="dot"></span>Esperando a que el anfitrión habilite los botones…</p>
+  </div>
+
+  <!-- Pantalla: armado, boton grande -->
+  <div class="card hidden" id="screenArmed">
+    <p class="sub">¡Prepárate!</p>
+    <button id="buzzBtn">TOCA</button>
+  </div>
+
+  <!-- Pantalla: alguien toco -->
+  <div class="card hidden" id="screenLocked">
+    <div class="locked-name" id="lockedName">—</div>
+    <div class="locked-sub" id="lockedSub">tocó primero</div>
+  </div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  const body = document.getElementById('body');
+  const meBadge = document.getElementById('meBadge');
+
+  const screens = {
+    join: document.getElementById('screenJoin'),
+    waiting: document.getElementById('screenWaiting'),
+    armed: document.getElementById('screenArmed'),
+    locked: document.getElementById('screenLocked'),
+  };
+
+  let myName = null;
+  let mySocketId = null;
+
+  function showScreen(key){
+    Object.values(screens).forEach(s => s.classList.add('hidden'));
+    screens[key].classList.remove('hidden');
+  }
+
+  function setBg(color){
+    body.style.backgroundColor = color;
+  }
+
+  const nameInput = document.getElementById('nameInput');
+  const joinBtn = document.getElementById('joinBtn');
+  const buzzBtn = document.getElementById('buzzBtn');
+
+  function doJoin(){
+    const val = nameInput.value.trim();
+    if(!val) { nameInput.focus(); return; }
+    socket.emit('player:join', val);
+  }
+
+  joinBtn.addEventListener('click', doJoin);
+  nameInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') doJoin(); });
+
+  let buzzLock = false;
+  function doBuzz(){
+    if(buzzLock) return;
+    buzzLock = true;
+    if(navigator.vibrate) { try{ navigator.vibrate(60); }catch(e){} }
+    socket.emit('player:buzz');
+    setTimeout(()=>{ buzzLock = false; }, 400);
+  }
+  buzzBtn.addEventListener('click', doBuzz);
+  buzzBtn.addEventListener('touchstart', (e) => { e.preventDefault(); doBuzz(); }, {passive:false});
+
+  socket.on('connect', () => { mySocketId = socket.id; });
+
+  socket.on('joined', ({name}) => {
+    myName = name;
+    document.getElementById('waitingHi').textContent = `¡Hola, ${name}!`;
+    meBadge.textContent = name;
+    meBadge.classList.remove('hidden');
+  });
+
+  socket.on('state', (state) => {
+    if(!myName){ showScreen('join'); setBg('#0f1220'); return; }
+
+    if(state.phase === 'locked' && state.winner){
+      const isMe = state.winner.id === mySocketId;
+      setBg(isMe ? '#b91c1c' : '#dc2626');
+      document.getElementById('lockedName').textContent = isMe ? '¡TÚ!' : state.winner.name;
+      document.getElementById('lockedSub').textContent = isMe ? '¡Tocaste primero!' : 'tocó primero';
+      showScreen('locked');
+      if(navigator.vibrate){ try{ navigator.vibrate(isMe ? [0,90,50,90] : 40); }catch(e){} }
+    } else if(state.phase === 'armed'){
+      setBg('#0f1220');
+      showScreen('armed');
+    } else {
+      setBg('#0f1220');
+      showScreen('waiting');
+    }
+  });
+</script>
+</body>
+</html>
