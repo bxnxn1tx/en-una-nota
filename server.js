@@ -5,6 +5,13 @@ const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 3000;
 
+// Secret used to reach the host panel (/host/<HOST_KEY>) and to authorize
+// host-only socket actions. Override it by setting a HOST_KEY variable in
+// Railway (Service → Variables) if you ever want to change it without
+// touching the code. This default is random and only lives in your
+// private repo, so it's fine to leave as-is.
+const HOST_KEY = process.env.HOST_KEY || 'yi5586z7j8T1';
+
 const app = express();
 // Trust Railway's (or any) reverse proxy so req.protocol reflects the real
 // scheme (https) the browser used, not the internal http hop.
@@ -16,7 +23,12 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'player.html'));
 });
 
-app.get('/host', (req, res) => {
+// Only reachable if you know the secret key — anyone else gets a plain 404,
+// same as any other unknown URL on the site.
+app.get('/host/:key', (req, res) => {
+  if (req.params.key !== HOST_KEY) {
+    return res.status(404).send('Not found');
+  }
   res.sendFile(path.join(__dirname, 'host.html'));
 });
 
@@ -84,7 +96,8 @@ io.on('connection', (socket) => {
     io.emit('buzzed', winner);
   });
 
-  socket.on('host:hello', () => {
+  socket.on('host:hello', (key) => {
+    if (key !== HOST_KEY) return;
     socket.data.role = 'host';
     socket.join('hosts');
     socket.emit('players', rosterArray());

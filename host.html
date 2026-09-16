@@ -168,7 +168,11 @@
   }
   document.body.addEventListener('click', unlockAudio, { once:true });
 
-  socket.on('connect', () => { socket.emit('host:hello'); });
+  // The secret key is the last part of the URL (/host/<key>) — read it from
+  // here so it never has to be hardcoded in this file.
+  const HOST_KEY = window.location.pathname.split('/').filter(Boolean).pop() || '';
+
+  socket.on('connect', () => { socket.emit('host:hello', HOST_KEY); });
 
   fetch('/api/info').then(r=>r.json()).then(({url}) => {
     document.getElementById('linkUrl').textContent = url;
