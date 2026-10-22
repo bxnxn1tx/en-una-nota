@@ -95,6 +95,24 @@
   .locked-sub{ font-size:1.1rem; opacity:.9; margin-top:10px; }
 
   .hidden{ display:none !important; }
+
+  .results-row{
+    display:flex; align-items:center; gap:12px;
+    background:var(--panel);
+    border-radius:14px;
+    padding:14px 16px;
+    margin-bottom:10px;
+    text-align:left;
+  }
+  .results-row.first{
+    background:linear-gradient(135deg,#3a2f00,var(--panel));
+    border:2px solid var(--accent);
+  }
+  .results-rank{ font-size:1.3rem; font-weight:800; width:34px; text-align:center; flex-shrink:0; }
+  .results-row.first .results-rank{ font-size:1.6rem; }
+  .results-name{ flex:1; font-size:1.05rem; font-weight:700; word-break:break-word; }
+  .results-score{ font-size:1.1rem; font-weight:800; color:var(--accent); flex-shrink:0; }
+
   .me-badge{
     position:fixed;
     top:14px; right:14px;
@@ -136,6 +154,12 @@
     <div class="locked-sub" id="lockedSub">tocó primero</div>
   </div>
 
+  <!-- Pantalla: resultados finales -->
+  <div class="card hidden" id="screenResults">
+    <h1>🏁 ¡Juego terminado!</h1>
+    <div id="resultsList"></div>
+  </div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
   const socket = io();
@@ -147,6 +171,7 @@
     waiting: document.getElementById('screenWaiting'),
     armed: document.getElementById('screenArmed'),
     locked: document.getElementById('screenLocked'),
+    results: document.getElementById('screenResults'),
   };
 
   let myName = null;
@@ -194,10 +219,37 @@
     meBadge.classList.remove('hidden');
   });
 
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderResults(standings){
+    const list = document.getElementById('resultsList');
+    list.innerHTML = '';
+    if(!standings.length){
+      list.innerHTML = '<p class="status">Nadie llegó a jugar…</p>';
+      return;
+    }
+    standings.forEach((p, i) => {
+      const row = document.createElement('div');
+      row.className = 'results-row' + (i === 0 ? ' first' : '');
+      const medal = i === 0 ? '🏆' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '°';
+      row.innerHTML = `
+        <div class="results-rank">${medal}</div>
+        <div class="results-name">${escapeHtml(p.name)}</div>
+        <div class="results-score">${p.score} pts</div>`;
+      list.appendChild(row);
+    });
+  }
+
   socket.on('state', (state) => {
     if(!myName){ showScreen('join'); setBg('#0f1220'); return; }
 
-    if(state.phase === 'locked' && state.winner){
+    if(state.phase === 'ended'){
+      setBg('#0f1220');
+      renderResults(state.standings || []);
+      showScreen('results');
+    } else if(state.phase === 'locked' && state.winner){
       const isMe = state.winner.id === mySocketId;
       setBg(isMe ? '#b91c1c' : '#dc2626');
       document.getElementById('lockedName').textContent = isMe ? '¡TÚ!' : state.winner.name;

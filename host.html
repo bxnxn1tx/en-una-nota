@@ -80,7 +80,17 @@
   }
   .btn-arm{ background:var(--green); color:#06210f; }
   .btn-award{ background:var(--accent); color:#241d00; }
-  .btn-reset{ background:var(--panel2); color:var(--text); border:1px solid #313a63; }
+  .btn-reset{
+    background:#f59e0b; color:#241a00; border:none;
+    font-size:1.2rem; padding:20px;
+  }
+  .btn-reset.urgent{
+    animation: pulse-reset 1s infinite;
+  }
+  @keyframes pulse-reset{
+    0%,100%{ box-shadow:0 0 0 0 rgba(245,158,11,.55); }
+    50%{ box-shadow:0 0 0 10px rgba(245,158,11,0); }
+  }
   .btn:disabled{ opacity:.4; cursor:default; }
   .btn:active:not(:disabled){ transform:scale(.99); }
   .btn-row{ display:flex; gap:10px; }
@@ -92,16 +102,23 @@
   th{ color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.03em; font-weight:600; }
   td.score{ font-weight:800; font-size:1.1rem; }
   .rank{ color:var(--muted); width:28px; }
-  .score-controls{ display:flex; gap:6px; }
+  .score-controls{ display:flex; gap:8px; }
   .mini-btn{
-    width:30px; height:30px;
-    border-radius:8px;
+    min-width:52px; height:44px;
+    border-radius:10px;
     border:1px solid #313a63;
     background:var(--panel2);
     color:var(--text);
-    font-weight:700;
+    font-weight:800;
+    font-size:.95rem;
     cursor:pointer;
   }
+  .mini-btn-plus{ background:var(--green); color:#06210f; border-color:transparent; }
+  .mini-btn-minus{ background:var(--red); color:#2b0505; border-color:transparent; }
+  .mini-btn:active{ transform:scale(.95); }
+  tr.winner-row{ background:rgba(255,204,0,.14); }
+  tr.winner-row td.score{ color:var(--accent); }
+  .btn-end{ background:var(--red); color:#fff; }
   .empty{ color:var(--muted); padding:14px 4px; font-size:.95rem; }
 </style>
 </head>
@@ -118,7 +135,7 @@
           <img id="qr" src="" alt="QR" />
           <div class="link-info">
             <div class="link-url" id="linkUrl">cargando…</div>
-            <div class="link-hint">Todos deben estar conectados a la misma WiFi</div>
+            <div class="link-hint">Cualquiera con este link puede entrar — no necesitan estar en la misma WiFi</div>
           </div>
         </div>
       </div>
@@ -130,16 +147,14 @@
           <div class="winner-banner" id="winnerBanner"></div>
         </div>
         <button class="btn btn-arm" id="armBtn">🔔 Habilitar botones</button>
-        <div class="btn-row">
-          <button class="btn btn-award" id="awardBtn" disabled>✅ Punto para el ganador</button>
-          <button class="btn btn-reset" id="resetBtn">🔁 Reiniciar (sin punto)</button>
-        </div>
+        <button class="btn btn-reset" id="resetBtn">↩️ Reiniciar ronda (se equivocó)</button>
+        <button class="btn btn-end" id="endBtn">🏁 Finalizar juego</button>
       </div>
 
     </div>
 
     <div class="panel">
-      <h2>Marcador (solo tú lo ves)</h2>
+      <h2>Marcador (solo tú lo ves) — toca +1 / −1 para dar o quitar puntos</h2>
       <table id="scoreTable">
         <thead>
           <tr><th class="rank">#</th><th>Jugador</th><th>Puntos</th><th></th></tr>
@@ -182,25 +197,31 @@
   });
 
   const armBtn = document.getElementById('armBtn');
-  const awardBtn = document.getElementById('awardBtn');
   const resetBtn = document.getElementById('resetBtn');
+  const endBtn = document.getElementById('endBtn');
   const stateLabel = document.getElementById('stateLabel');
   const winnerBanner = document.getElementById('winnerBanner');
 
   let currentWinnerId = null;
+  let latestPlayers = [];
 
   armBtn.addEventListener('click', () => socket.emit('host:arm'));
   resetBtn.addEventListener('click', () => socket.emit('host:reset'));
-  awardBtn.addEventListener('click', () => {
-    if(currentWinnerId) socket.emit('host:award', currentWinnerId);
+  endBtn.addEventListener('click', () => {
+    if(confirm('¿Finalizar el juego y mostrarle la puntuación final a todos?')){
+      socket.emit('host:end');
+    }
   });
 
   socket.on('state', (state) => {
     currentWinnerId = state.winner ? state.winner.id : null;
-    awardBtn.disabled = !currentWinnerId;
 
-    if(state.phase === 'locked' && state.winner){
-      stateLabel.textContent = '¡Alguien tocó!';
+    if(state.phase === 'ended'){
+      stateLabel.textContent = '🏁 Juego finalizado — todos están viendo la puntuación final';
+      winnerBanner.textContent = '';
+      armBtn.disabled = false;
+    } else if(state.phase === 'locked' && state.winner){
+      stateLabel.textContent = '¡Alguien tocó! Dale +1 en la tabla de abajo';
       winnerBanner.textContent = state.winner.name;
       armBtn.disabled = true;
     } else if(state.phase === 'armed'){
@@ -212,6 +233,13 @@
       winnerBanner.textContent = '';
       armBtn.disabled = false;
     }
+
+    // Pulsa el botón de reiniciar mientras hay alguien esperando una
+    // decisión — así salta a la vista si fue una falsa alarma.
+    resetBtn.classList.toggle('urgent', state.phase === 'locked');
+
+    // Re-render so the row of whoever just buzzed gets highlighted.
+    renderPlayers(latestPlayers);
   });
 
   socket.on('buzzed', (winner) => {
@@ -222,6 +250,7 @@
   });
 
   function renderPlayers(list){
+    latestPlayers = list;
     const body = document.getElementById('scoreBody');
     const empty = document.getElementById('emptyMsg');
     body.innerHTML = '';
@@ -229,14 +258,15 @@
     empty.style.display='none';
     list.forEach((p, i) => {
       const tr = document.createElement('tr');
+      if(p.id === currentWinnerId) tr.classList.add('winner-row');
       tr.innerHTML = `
         <td class="rank">${i+1}</td>
         <td>${escapeHtml(p.name)}</td>
         <td class="score">${p.score}</td>
         <td>
           <div class="score-controls">
-            <button class="mini-btn" data-id="${p.id}" data-delta="-1">−</button>
-            <button class="mini-btn" data-id="${p.id}" data-delta="1">+</button>
+            <button class="mini-btn mini-btn-minus" data-id="${p.id}" data-delta="-1">−1</button>
+            <button class="mini-btn mini-btn-plus" data-id="${p.id}" data-delta="1">+1</button>
           </div>
         </td>`;
       body.appendChild(tr);

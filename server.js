@@ -44,6 +44,7 @@ app.get('/api/info', (req, res) => {
 const players = new Map(); // socketId -> { id, name, score }
 let armed = false;
 let winner = null; // { id, name }
+let gameEnded = false;
 
 function rosterArray() {
   return Array.from(players.values()).sort(
@@ -53,9 +54,12 @@ function rosterArray() {
 
 function currentState() {
   return {
-    phase: winner ? 'locked' : armed ? 'armed' : 'waiting',
+    phase: gameEnded ? 'ended' : winner ? 'locked' : armed ? 'armed' : 'waiting',
     winner,
     playerCount: players.size,
+    // Final standings travel with every state update (cheap for a party-size
+    // room) so the "ended" screen can render immediately on every client.
+    standings: rosterArray(),
   };
 }
 
@@ -106,6 +110,7 @@ io.on('connection', (socket) => {
 
   socket.on('host:arm', () => {
     if (socket.data.role !== 'host') return;
+    gameEnded = false;
     winner = null;
     armed = true;
     broadcastState();
@@ -113,26 +118,36 @@ io.on('connection', (socket) => {
 
   socket.on('host:reset', () => {
     if (socket.data.role !== 'host') return;
+    gameEnded = false;
     winner = null;
     armed = false;
     broadcastState();
   });
 
-  socket.on('host:award', (playerId) => {
-    if (socket.data.role !== 'host') return;
-    const p = players.get(playerId);
-    if (p) p.score += 1;
-    winner = null;
-    armed = false;
-    broadcastPlayers();
-    broadcastState();
-  });
-
+  // Manual scoring: the host taps +1/-1 directly on a player's row in the
+  // scoreboard. Scores can go negative (handy for correcting a mistake).
+  // If the row being adjusted is whoever just buzzed in, this also closes
+  // out the round — no separate "award" step needed.
   socket.on('host:adjust', ({ playerId, delta } = {}) => {
     if (socket.data.role !== 'host') return;
     const p = players.get(playerId);
-    if (p) p.score = Math.max(0, p.score + (delta || 0));
+    if (p) p.score += delta || 0;
     broadcastPlayers();
+    if (winner && winner.id === playerId) {
+      winner = null;
+      armed = false;
+      broadcastState();
+    }
+  });
+
+  // Ends the game: freezes the round and pushes the final standings to
+  // every connected screen (players included), with the winner on top.
+  socket.on('host:end', () => {
+    if (socket.data.role !== 'host') return;
+    gameEnded = true;
+    winner = null;
+    armed = false;
+    broadcastState();
   });
 
   socket.on('host:kick', (playerId) => {
